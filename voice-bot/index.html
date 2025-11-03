@@ -1099,10 +1099,10 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                 <div class="form-group" id="mobilePushToTalkGroup" style="display: none;">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="mobilePushToTalk" onchange="toggleMobilePushToTalk(); saveSettings();" style="transform: scale(1.2);">
-                        <strong>📱 Push-to-Talk Mode (Mobile Only)</strong>
+                        <strong>📱 Push-to-Talk Mode (Desktop Only Option)</strong>
                     </label>
                     <small style="color: #666; margin-top: 5px; display: block;">
-                        Touch and hold the microphone button to speak, release to stop. Eliminates continuous listening and audio feedback.
+                        Touch and hold the microphone button to speak, release to stop. <strong>Note: Push-to-talk is automatically enabled and required on mobile devices.</strong>
                     </small>
                 </div>
                 
@@ -1119,12 +1119,12 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                 <div id="mobileOptDetails" style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 10px; border-left: 4px solid #00b894;">
                     <strong>Mobile Optimization Features:</strong><br>
                     <small style="color: #666;">
-                        • Push-to-talk option for complete control<br>
-                        • Reduced continuous listening<br>
-                        • Voice activity detection<br>
+                        • <strong>Mandatory push-to-talk on mobile</strong> (no continuous listening)<br>
+                        • Voice activity detection disabled<br>
                         • Optional auto-sleep disable<br>
                         • Battery-friendly operation<br>
-                        • Less microphone permission prompts
+                        • No microphone permission prompts during normal use<br>
+                        • Complete elimination of audio feedback issues
                     </small>
                 </div>
             </div>
@@ -3049,7 +3049,12 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                     mobileOptimizationEnabled = mobileOptEnabled;
                     
                     // Apply mobile push-to-talk and auto-sleep settings
-                    document.getElementById('mobilePushToTalk').checked = settings.mobilePushToTalk || false;
+                    // On mobile, always enable push-to-talk when mobile optimization is on
+                    if (isMobileDevice && mobileOptEnabled) {
+                        document.getElementById('mobilePushToTalk').checked = true;
+                    } else {
+                        document.getElementById('mobilePushToTalk').checked = settings.mobilePushToTalk || false;
+                    }
                     document.getElementById('disableMobileAutoSleep').checked = settings.disableMobileAutoSleep || false;
                     
                     // Apply wake, sleep, and interrupt words
@@ -5623,12 +5628,21 @@ User: "${input}"`;
             isBotActive = true;
             isAwake = false;
             
+            const isMobile = detectMobileDevice();
+            
             document.getElementById('startBtn').disabled = true;
             document.getElementById('stopBtn').disabled = false;
             
             try {
-                speechRecognition.start();
-                addMessage('bot', "I'm now active and continuously listening! Say one of my wake words ('Hey Bot', 'Hello Bot', 'Assistant', or 'Computer') followed by your command or question. I'm ready to help!");
+                // On mobile, only use push-to-talk - no continuous listening
+                if (isMobile && mobileOptimizationEnabled) {
+                    updateStatus('🎤 Push-to-Talk Ready', 'Hold the "Hold to Talk" button and speak');
+                    addMessage('bot', "I'm now active in push-to-talk mode! Hold the 'Hold to Talk' button and speak when you want to interact with me.");
+                } else {
+                    // Desktop/non-mobile: use continuous listening
+                    speechRecognition.start();
+                    addMessage('bot', "I'm now active and continuously listening! Say one of my wake words ('Hey Bot', 'Hello Bot', 'Assistant', or 'Computer') followed by your command or question. I'm ready to help!");
+                }
             } catch (error) {
                 console.error('Failed to start speech recognition:', error);
                 updateStatus('❌ Failed to Start', 'Please check microphone permissions and try again');
@@ -6101,10 +6115,17 @@ User: "${input}"`;
         // Toggle mobile optimization
         function toggleMobileOptimization() {
             const enabled = document.getElementById('mobileOptimization').checked;
-            const pushToTalkEnabled = document.getElementById('mobilePushToTalk').checked;
-            const autoSleepDisabled = document.getElementById('disableMobileAutoSleep').checked;
+            const isMobile = detectMobileDevice();
             
             mobileOptimizationEnabled = enabled;
+            
+            // On mobile, push-to-talk is mandatory when optimization is enabled
+            if (enabled && isMobile) {
+                document.getElementById('mobilePushToTalk').checked = true;
+            }
+            
+            const pushToTalkEnabled = document.getElementById('mobilePushToTalk').checked;
+            const autoSleepDisabled = document.getElementById('disableMobileAutoSleep').checked;
             
             console.log('Mobile optimization:', enabled ? 'enabled' : 'disabled');
             console.log('Push-to-talk mode:', pushToTalkEnabled ? 'enabled' : 'disabled');
@@ -6115,7 +6136,12 @@ User: "${input}"`;
             const autoSleepGroup = document.getElementById('mobileAutoSleepGroup');
             
             if (enabled) {
-                pushToTalkGroup.style.display = 'block';
+                // Hide push-to-talk option on mobile (it's mandatory)
+                if (isMobile) {
+                    pushToTalkGroup.style.display = 'none';
+                } else {
+                    pushToTalkGroup.style.display = 'block';
+                }
                 autoSleepGroup.style.display = 'block';
             } else {
                 pushToTalkGroup.style.display = 'none';
@@ -6127,10 +6153,16 @@ User: "${input}"`;
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
             
-            if (enabled && pushToTalkEnabled) {
+            if (enabled && (pushToTalkEnabled || isMobile)) {
                 pushToTalkBtn.style.display = 'inline-block';
-                startBtn.style.display = 'none';
-                stopBtn.style.display = 'none';
+                if (isMobile) {
+                    // On mobile, completely hide start/stop buttons
+                    startBtn.style.display = 'none';
+                    stopBtn.style.display = 'none';
+                } else {
+                    startBtn.style.display = 'inline-block';
+                    stopBtn.style.display = 'inline-block';
+                }
                 updateStatus('🎤 Push-to-Talk Mode', 'Activate assistant, then hold "Hold to Talk" button to speak');
             } else {
                 pushToTalkBtn.style.display = 'none';
@@ -6156,7 +6188,8 @@ User: "${input}"`;
                 setTimeout(() => {
                     if (isBotActive) {
                         initBot();
-                        if (!pushToTalkEnabled) {
+                        // Only start continuous listening if not mobile or push-to-talk not enabled
+                        if (!isMobile && !pushToTalkEnabled) {
                             speechRecognition.start();
                         }
                         updateStatus('🔄 Settings Updated', 'Mobile optimization ' + (enabled ? 'enabled' : 'disabled'));
@@ -6412,7 +6445,14 @@ User: "${input}"`;
             if (!settingsLoaded) {
                 document.getElementById('mobileOptimization').checked = isMobileDevice;
                 mobileOptimizationEnabled = isMobileDevice;
+                // Auto-enable push-to-talk on mobile
+                if (isMobileDevice) {
+                    document.getElementById('mobilePushToTalk').checked = true;
+                }
             }
+            
+            // Update mobile controls display
+            toggleMobileOptimization();
             
             // Set welcome message timestamp
             document.getElementById('welcome-time').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -6613,7 +6653,15 @@ User: "${input}"`;
         // Initialize Spotify token check on page load
         document.addEventListener('DOMContentLoaded', function() {
             checkForSpotifyToken();
+            initializeMobileControls();
         });
+        
+        // Initialize mobile controls on page load
+        function initializeMobileControls() {
+            // This function is called from DOMContentLoaded to set up mobile controls
+            // The actual initialization happens in the main init block above
+            toggleMobileOptimization();
+        }
     </script>
 </body>
 </html>

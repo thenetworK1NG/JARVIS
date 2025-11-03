@@ -892,6 +892,13 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                 <button class="btn btn-danger" id="stopBtn" onclick="stopBot()" disabled>
                     ⏹️ Deactivate Assistant
                 </button>
+                <button class="btn btn-secondary" id="pushToTalkBtn" style="display: none;" 
+                        ontouchstart="startPushToTalk(event)" 
+                        ontouchend="stopPushToTalk(event)"
+                        onmousedown="startPushToTalk(event)" 
+                        onmouseup="stopPushToTalk(event)">
+                    🎤 Hold to Talk
+                </button>
             </div>
             
             <div class="conversation" id="conversation">
@@ -1089,12 +1096,33 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                     </small>
                 </div>
                 
+                <div class="form-group" id="mobilePushToTalkGroup" style="display: none;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="mobilePushToTalk" onchange="toggleMobilePushToTalk(); saveSettings();" style="transform: scale(1.2);">
+                        <strong>📱 Push-to-Talk Mode (Mobile Only)</strong>
+                    </label>
+                    <small style="color: #666; margin-top: 5px; display: block;">
+                        Touch and hold the microphone button to speak, release to stop. Eliminates continuous listening and audio feedback.
+                    </small>
+                </div>
+                
+                <div class="form-group" id="mobileAutoSleepGroup" style="display: none;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="disableMobileAutoSleep" onchange="saveSettings();" style="transform: scale(1.2);">
+                        <strong>🔄 Disable Auto-Sleep on Mobile</strong>
+                    </label>
+                    <small style="color: #666; margin-top: 5px; display: block;">
+                        Keeps the assistant continuously listening on mobile without auto-sleep timeout. Only manual sleep commands will work.
+                    </small>
+                </div>
+                
                 <div id="mobileOptDetails" style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 10px; border-left: 4px solid #00b894;">
                     <strong>Mobile Optimization Features:</strong><br>
                     <small style="color: #666;">
+                        • Push-to-talk option for complete control<br>
                         • Reduced continuous listening<br>
                         • Voice activity detection<br>
-                        • Longer restart delays<br>
+                        • Optional auto-sleep disable<br>
                         • Battery-friendly operation<br>
                         • Less microphone permission prompts
                     </small>
@@ -3015,10 +3043,14 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                     document.getElementById('reminderSnooze').value = settings.reminderSnooze || defaultSettings.reminderSnooze;
                     document.getElementById('missedReminderMessage').value = settings.missedReminderMessage || defaultSettings.missedReminderMessage;
                     
-                    // Apply mobile optimization setting
+                    // Apply mobile optimization settings
                     const mobileOptEnabled = settings.mobileOptimization !== undefined ? settings.mobileOptimization : isMobileDevice;
                     document.getElementById('mobileOptimization').checked = mobileOptEnabled;
                     mobileOptimizationEnabled = mobileOptEnabled;
+                    
+                    // Apply mobile push-to-talk and auto-sleep settings
+                    document.getElementById('mobilePushToTalk').checked = settings.mobilePushToTalk || false;
+                    document.getElementById('disableMobileAutoSleep').checked = settings.disableMobileAutoSleep || false;
                     
                     // Apply wake, sleep, and interrupt words
                     wakeWords = settings.wakeWords || defaultSettings.wakeWords;
@@ -3058,6 +3090,10 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                     document.getElementById('dateResponseFormat').value = settings.dateResponseFormat || defaultSettings.dateResponseFormat;
                     
                     console.log('Settings loaded successfully');
+                    
+                    // Update mobile optimization UI
+                    toggleMobileOptimization();
+                    
                     return true;
                 } else {
                     console.log('No saved settings found, using defaults');
@@ -3117,6 +3153,8 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                     reminderSnooze: parseInt(document.getElementById('reminderSnooze').value),
                     missedReminderMessage: document.getElementById('missedReminderMessage').value,
                     mobileOptimization: document.getElementById('mobileOptimization').checked,
+                    mobilePushToTalk: document.getElementById('mobilePushToTalk').checked,
+                    disableMobileAutoSleep: document.getElementById('disableMobileAutoSleep').checked,
                     wakeWords: wakeWords,
                     sleepWords: sleepWords,
                     interruptWords: interruptWords,
@@ -5551,6 +5589,15 @@ User: "${input}"`;
                 clearTimeout(awakeTimeout);
             }
             
+            // Check if auto-sleep is disabled for mobile
+            const isMobile = detectMobileDevice();
+            const autoSleepDisabled = document.getElementById('disableMobileAutoSleep').checked;
+            
+            if (isMobile && mobileOptimizationEnabled && autoSleepDisabled) {
+                console.log('Auto-sleep disabled for mobile - keeping assistant awake');
+                return; // Don't set sleep timer on mobile if disabled
+            }
+            
             awakeTimeout = setTimeout(() => {
                 if (isAwake) {
                     isAwake = false;
@@ -5648,6 +5695,87 @@ User: "${input}"`;
             updateStatus('🛑 Assistant Deactivated', 'Click "Activate Assistant" to start voice interaction again');
             
             addMessage('bot', "I've been deactivated. Thanks for chatting with me! Click 'Activate Assistant' whenever you'd like to talk again.");
+        }
+
+        // Push-to-talk functionality for mobile
+        let isPushToTalkActive = false;
+        let pushToTalkRecognition = null;
+
+        function startPushToTalk(event) {
+            event.preventDefault();
+            
+            if (isPushToTalkActive || !isBotActive) {
+                return;
+            }
+            
+            isPushToTalkActive = true;
+            const pushToTalkBtn = document.getElementById('pushToTalkBtn');
+            pushToTalkBtn.style.backgroundColor = '#ff4757';
+            pushToTalkBtn.textContent = '🎤 Listening...';
+            
+            // Create new speech recognition instance for push-to-talk
+            pushToTalkRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            pushToTalkRecognition.continuous = false;
+            pushToTalkRecognition.interimResults = false;
+            pushToTalkRecognition.lang = 'en-US';
+            pushToTalkRecognition.maxAlternatives = 1;
+
+            pushToTalkRecognition.onstart = function() {
+                updateStatus('🎤 Listening...', 'Speak now - release button when done');
+                updateBotAvatar('listening', '🎧');
+            };
+
+            pushToTalkRecognition.onresult = function(event) {
+                const result = event.results[0];
+                if (result.isFinal) {
+                    const text = result.transcript.trim();
+                    if (text) {
+                        addMessage('user', text);
+                        processUserInput(text, true); // Force processing as if awake
+                    }
+                }
+            };
+
+            pushToTalkRecognition.onerror = function(event) {
+                console.error('Push-to-talk speech recognition error:', event.error);
+                stopPushToTalk();
+            };
+
+            pushToTalkRecognition.onend = function() {
+                if (isPushToTalkActive) {
+                    stopPushToTalk();
+                }
+            };
+
+            try {
+                pushToTalkRecognition.start();
+            } catch (error) {
+                console.error('Failed to start push-to-talk:', error);
+                stopPushToTalk();
+            }
+        }
+
+        function stopPushToTalk(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            
+            if (!isPushToTalkActive) {
+                return;
+            }
+            
+            isPushToTalkActive = false;
+            const pushToTalkBtn = document.getElementById('pushToTalkBtn');
+            pushToTalkBtn.style.backgroundColor = '';
+            pushToTalkBtn.textContent = '🎤 Hold to Talk';
+            
+            if (pushToTalkRecognition) {
+                pushToTalkRecognition.abort();
+                pushToTalkRecognition = null;
+            }
+            
+            updateStatus('🎯 Ready', 'Hold the "Hold to Talk" button and speak');
+            updateBotAvatar('idle', '🤖');
         }
 
         // Test voice function
@@ -5973,9 +6101,42 @@ User: "${input}"`;
         // Toggle mobile optimization
         function toggleMobileOptimization() {
             const enabled = document.getElementById('mobileOptimization').checked;
+            const pushToTalkEnabled = document.getElementById('mobilePushToTalk').checked;
+            const autoSleepDisabled = document.getElementById('disableMobileAutoSleep').checked;
+            
             mobileOptimizationEnabled = enabled;
             
             console.log('Mobile optimization:', enabled ? 'enabled' : 'disabled');
+            console.log('Push-to-talk mode:', pushToTalkEnabled ? 'enabled' : 'disabled');
+            console.log('Auto-sleep disabled:', autoSleepDisabled ? 'enabled' : 'disabled');
+            
+            // Show/hide mobile-specific settings
+            const pushToTalkGroup = document.getElementById('mobilePushToTalkGroup');
+            const autoSleepGroup = document.getElementById('mobileAutoSleepGroup');
+            
+            if (enabled) {
+                pushToTalkGroup.style.display = 'block';
+                autoSleepGroup.style.display = 'block';
+            } else {
+                pushToTalkGroup.style.display = 'none';
+                autoSleepGroup.style.display = 'none';
+            }
+            
+            // Show/hide push-to-talk button based on mobile optimization and push-to-talk setting
+            const pushToTalkBtn = document.getElementById('pushToTalkBtn');
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            
+            if (enabled && pushToTalkEnabled) {
+                pushToTalkBtn.style.display = 'inline-block';
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'none';
+                updateStatus('🎤 Push-to-Talk Mode', 'Activate assistant, then hold "Hold to Talk" button to speak');
+            } else {
+                pushToTalkBtn.style.display = 'none';
+                startBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'inline-block';
+            }
             
             // If bot is active, restart with new settings
             if (isBotActive) {
@@ -5995,11 +6156,18 @@ User: "${input}"`;
                 setTimeout(() => {
                     if (isBotActive) {
                         initBot();
-                        speechRecognition.start();
+                        if (!pushToTalkEnabled) {
+                            speechRecognition.start();
+                        }
                         updateStatus('🔄 Settings Updated', 'Mobile optimization ' + (enabled ? 'enabled' : 'disabled'));
                     }
                 }, 1000);
             }
+        }
+
+        // Toggle mobile push-to-talk mode
+        function toggleMobilePushToTalk() {
+            toggleMobileOptimization(); // Use the main function that handles all mobile settings
         }
 
         // Add new command

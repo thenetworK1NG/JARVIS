@@ -5724,6 +5724,13 @@ User: "${input}"`;
                 return;
             }
             
+            // Check if speech recognition is available
+            if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+                console.error('Speech recognition not supported');
+                addMessage('bot', 'Speech recognition is not supported on this device.');
+                return;
+            }
+            
             isPushToTalkActive = true;
             const pushToTalkBtn = document.getElementById('pushToTalkBtn');
             pushToTalkBtn.style.backgroundColor = '#ff4757';
@@ -5734,7 +5741,7 @@ User: "${input}"`;
             // Create new speech recognition instance for push-to-talk
             pushToTalkRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
             pushToTalkRecognition.continuous = false;
-            pushToTalkRecognition.interimResults = false;
+            pushToTalkRecognition.interimResults = true; // Enable interim results for better feedback
             pushToTalkRecognition.lang = 'en-US';
             pushToTalkRecognition.maxAlternatives = 1;
 
@@ -5744,11 +5751,12 @@ User: "${input}"`;
             };
 
             pushToTalkRecognition.onresult = function(event) {
+                console.log('Push-to-talk results received:', event.results);
                 const result = event.results[0];
                 if (result.isFinal) {
                     const text = result.transcript.trim();
+                    console.log('Final transcript:', text);
                     if (text) {
-                        console.log('Push-to-talk received:', text);
                         addMessage('user', text);
                         
                         // In push-to-talk mode, we bypass wake words and process directly
@@ -5764,7 +5772,23 @@ User: "${input}"`;
                             resetSleepTimer();
                             handleAwakeInput(text);
                         }
+                        
+                        // Reset UI after processing
+                        setTimeout(() => {
+                            updateStatus('🎯 Ready', 'Hold the "Hold to Talk" button and speak');
+                            updateBotAvatar('idle', '🤖');
+                        }, 500);
+                    } else {
+                        console.log('No text received from speech recognition');
+                        addMessage('bot', "I didn't catch that. Please try again.");
+                        // Reset UI if no text
+                        setTimeout(() => {
+                            updateStatus('🎯 Ready', 'Hold the "Hold to Talk" button and speak');
+                            updateBotAvatar('idle', '🤖');
+                        }, 500);
                     }
+                } else {
+                    console.log('Interim result:', result.transcript);
                 }
             };
 
@@ -5777,8 +5801,12 @@ User: "${input}"`;
 
             pushToTalkRecognition.onend = function() {
                 console.log('Push-to-talk speech recognition ended');
-                // Don't automatically call stopPushToTalk here as it might interfere
-                // Let the user release trigger the stop
+                // Clear the recognition reference since it's done
+                setTimeout(() => {
+                    if (pushToTalkRecognition) {
+                        pushToTalkRecognition = null;
+                    }
+                }, 100);
             };
 
             try {
@@ -5810,14 +5838,22 @@ User: "${input}"`;
                 console.log('Stopping push-to-talk recognition...');
                 // Use stop() instead of abort() to allow final results to process
                 pushToTalkRecognition.stop();
-                // Clear the reference after a small delay to allow result processing
+                
+                // Don't immediately reset UI - let onresult handle it
+                // Only reset if no result comes in within 2 seconds
                 setTimeout(() => {
-                    pushToTalkRecognition = null;
-                }, 100);
+                    if (pushToTalkRecognition) {
+                        console.log('Cleaning up push-to-talk recognition after timeout');
+                        pushToTalkRecognition = null;
+                        updateStatus('🎯 Ready', 'Hold the "Hold to Talk" button and speak');
+                        updateBotAvatar('idle', '🤖');
+                    }
+                }, 2000);
+            } else {
+                // No recognition was active, reset UI immediately
+                updateStatus('🎯 Ready', 'Hold the "Hold to Talk" button and speak');
+                updateBotAvatar('idle', '🤖');
             }
-            
-            updateStatus('🎯 Ready', 'Hold the "Hold to Talk" button and speak');
-            updateBotAvatar('idle', '🤖');
         }
 
         // Test voice function

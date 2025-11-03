@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1148,7 +1148,7 @@
                         1. Go to <a href="https://developer.spotify.com/dashboard" target="_blank" style="color: #1db954; text-decoration: none;">Spotify Developer Dashboard</a><br>
                         2. Create a new app or select existing one<br>
                         3. Copy your Client ID below<br>
-                        4. In app settings, add redirect URI: <code style="background: #f8f9fa; padding: 2px 4px; border-radius: 3px;">http://localhost:8080</code><br>
+                        4. In app settings, add redirect URI: <code id="currentRedirectUri" style="background: #f8f9fa; padding: 2px 4px; border-radius: 3px; user-select: all; cursor: text;"></code><br>
                         5. Click "Connect to Spotify" below
                     </div>
                     
@@ -2341,6 +2341,9 @@
                 return;
             }
             
+            // Get the current origin as redirect URI
+            const redirectUri = window.location.origin + window.location.pathname;
+            
             // Generate code verifier and challenge for PKCE
             const codeVerifier = generateCodeVerifier();
             const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -2363,7 +2366,7 @@
                 `response_type=code&` +
                 `client_id=${encodeURIComponent(clientId)}&` +
                 `scope=${encodeURIComponent(scopes)}&` +
-                `redirect_uri=${encodeURIComponent('http://localhost:8080')}&` +
+                `redirect_uri=${encodeURIComponent(redirectUri)}&` +
                 `code_challenge_method=S256&` +
                 `code_challenge=${codeChallenge}&` +
                 `state=${Math.random().toString(36).substring(7)}`;
@@ -2701,6 +2704,9 @@
                 return;
             }
             
+            // Get the current origin as redirect URI
+            const redirectUri = window.location.origin + window.location.pathname;
+            
             try {
                 document.getElementById('spotifyStatus').textContent = '⏳ Exchanging code for access token...';
                 document.getElementById('spotifyStatus').style.color = '#f39c12';
@@ -2714,7 +2720,7 @@
                         client_id: clientId,
                         grant_type: 'authorization_code',
                         code: code,
-                        redirect_uri: 'http://localhost:8080',
+                        redirect_uri: redirectUri,
                         code_verifier: codeVerifier,
                     }),
                 });
@@ -5676,8 +5682,19 @@ User: "${input}"`;
             
             if (useSpotify) {
                 spotifySettings.style.display = 'block';
+                // Update the redirect URI display when showing settings
+                updateRedirectUriDisplay();
             } else {
                 spotifySettings.style.display = 'none';
+            }
+        }
+
+        // Update redirect URI display
+        function updateRedirectUriDisplay() {
+            const redirectUriElement = document.getElementById('currentRedirectUri');
+            if (redirectUriElement) {
+                const currentUri = window.location.origin + window.location.pathname;
+                redirectUriElement.textContent = currentUri;
             }
         }
 
@@ -5924,6 +5941,10 @@ User: "${input}"`;
             
             // Initialize Ollama settings visibility
             toggleOllamaSettings();
+            
+            // Initialize Spotify settings visibility and redirect URI display
+            toggleSpotifySettings();
+            updateRedirectUriDisplay();
             
             // Add event listeners for auto-saving settings
             document.getElementById('botVoice').addEventListener('change', saveSettings);

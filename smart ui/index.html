@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Tracking UI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+    
+    <div id="imagesContainer"></div>
+    <div id="progressCircle" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:4;"></div>
+    <canvas id="overlay"></canvas>
+    <div id="status">Initializing...</div>
+    
+    <!-- Instructions Panel -->
+    <div id="instructions" style="position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: white; padding: 15px; border-radius: 10px; font-family: Arial, sans-serif; font-size: 12px; max-width: 250px; z-index: 1000;">
+        <h3 style="margin: 0 0 10px 0; color: #ffb300;">Hand Gestures:</h3>
+        <p style="margin: 5px 0;"><strong>Time:</strong> Both hands - thumb + index extended (hold 1s)</p>
+        <p style="margin: 5px 0;"><strong>Date:</strong> Both hands - all fingers extended (hold 1s)</p>
+        <p style="margin: 5px 0;"><strong>Import Image:</strong> Press 'i' key</p>
+        <p style="margin: 5px 0;"><strong>Select:</strong> Pinch over image (hold)</p>
+        <p style="margin: 5px 0;"><strong>Move:</strong> Pinch and drag with left hand</p>
+        <p style="margin: 5px 0;"><strong>Rotate/Scale:</strong> Right hand gestures</p>
+        <p style="margin: 5px 0;"><strong>Release:</strong> Open both hands</p>
+        <button onclick="document.getElementById('instructions').style.display='none'" style="margin-top: 10px; padding: 5px 10px; background: #ffb300; border: none; border-radius: 5px; cursor: pointer;">Hide</button>
+    </div>
+    
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="handtrack.js"></script>
+</body>
+</html>

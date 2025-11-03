@@ -1,0 +1,12 @@
+# Jekyll configuration for GitHub Pages
+exclude:
+  - node_modules/
+  - voice-bot/node_modules/
+  - package.json
+  - package-lock.json
+  - README.md
+
+# Prevent Jekyll from processing these directories
+plugins:
+  - jekyll-default-layout
+  - jekyll-titles-from-headings

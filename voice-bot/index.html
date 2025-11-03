@@ -1076,7 +1076,33 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
             </div>
             
             <div class="settings">
-                <h3>🔔 Wake, Sleep & Interrupt Words</h3>
+                <h3>� Mobile Optimization</h3>
+                
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="mobileOptimization" onchange="toggleMobileOptimization(); saveSettings();" style="transform: scale(1.2);">
+                        <strong>Enable Mobile Optimization</strong>
+                    </label>
+                    <small style="color: #666; margin-top: 5px; display: block;">
+                        Reduces microphone opening/closing on mobile devices to prevent audio feedback and improve battery life. 
+                        Automatically detected: <span id="deviceType"></span>
+                    </small>
+                </div>
+                
+                <div id="mobileOptDetails" style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 10px; border-left: 4px solid #00b894;">
+                    <strong>Mobile Optimization Features:</strong><br>
+                    <small style="color: #666;">
+                        • Reduced continuous listening<br>
+                        • Voice activity detection<br>
+                        • Longer restart delays<br>
+                        • Battery-friendly operation<br>
+                        • Less microphone permission prompts
+                    </small>
+                </div>
+            </div>
+            
+            <div class="settings">
+                <h3>�🔔 Wake, Sleep & Interrupt Words</h3>
                 
                 <div class="form-group">
                     <label for="wakeWordInput">Wake Words (comma-separated):</label>
@@ -1418,6 +1444,67 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
         let motionDetectionInterval = null;
         let previousFrame = null;
         let motionCanvas = null;
+        
+        // Mobile detection and optimization
+        let isMobileDevice = detectMobileDevice();
+        let lastMicrophoneActivity = 0;
+        let silenceTimeout = null;
+        let restartTimeout = null;
+        let voiceActivityDetector = null;
+        let mobileOptimizationEnabled = true;
+        
+        // Detect mobile device
+        function detectMobileDevice() {
+            const userAgent = navigator.userAgent.toLowerCase();
+            const mobileKeywords = ['android', 'iphone', 'ipad', 'ipod', 'blackberry', 'windows phone', 'opera mini'];
+            const isMobile = mobileKeywords.some(keyword => userAgent.includes(keyword));
+            const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            const hasSmallScreen = window.innerWidth <= 768;
+            
+            return isMobile || (isTouchDevice && hasSmallScreen);
+        }
+        
+        // Voice Activity Detection for mobile optimization
+        function initVoiceActivityDetection() {
+            if (!audioContext || !microphoneStream) return null;
+            
+            const analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(microphoneStream);
+            source.connect(analyser);
+            
+            analyser.fftSize = 256;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            let silenceStart = Date.now();
+            const SILENCE_THRESHOLD = 50; // Adjust as needed
+            const SILENCE_DURATION = 3000; // 3 seconds of silence
+            
+            function checkAudioLevel() {
+                if (!isBotActive || isSpeaking) return;
+                
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((acc, val) => acc + val, 0) / bufferLength;
+                
+                if (average > SILENCE_THRESHOLD) {
+                    lastMicrophoneActivity = Date.now();
+                    silenceStart = Date.now();
+                } else if (Date.now() - silenceStart > SILENCE_DURATION && isMobileDevice) {
+                    // Stop listening after prolonged silence on mobile
+                    console.log('Prolonged silence detected on mobile, stopping speech recognition');
+                    if (speechRecognition && isListening) {
+                        speechRecognition.stop();
+                    }
+                }
+                
+                if (isBotActive) {
+                    requestAnimationFrame(checkAudioLevel);
+                }
+            }
+            
+            checkAudioLevel();
+            return { analyser, source };
+        }
         let motionContext = null;
         let lastInteractionTime = null;
         let absenceGreetingGiven = false;
@@ -2928,6 +3015,11 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                     document.getElementById('reminderSnooze').value = settings.reminderSnooze || defaultSettings.reminderSnooze;
                     document.getElementById('missedReminderMessage').value = settings.missedReminderMessage || defaultSettings.missedReminderMessage;
                     
+                    // Apply mobile optimization setting
+                    const mobileOptEnabled = settings.mobileOptimization !== undefined ? settings.mobileOptimization : isMobileDevice;
+                    document.getElementById('mobileOptimization').checked = mobileOptEnabled;
+                    mobileOptimizationEnabled = mobileOptEnabled;
+                    
                     // Apply wake, sleep, and interrupt words
                     wakeWords = settings.wakeWords || defaultSettings.wakeWords;
                     sleepWords = settings.sleepWords || defaultSettings.sleepWords;
@@ -3024,6 +3116,7 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                     maxReminders: parseInt(document.getElementById('maxReminders').value),
                     reminderSnooze: parseInt(document.getElementById('reminderSnooze').value),
                     missedReminderMessage: document.getElementById('missedReminderMessage').value,
+                    mobileOptimization: document.getElementById('mobileOptimization').checked,
                     wakeWords: wakeWords,
                     sleepWords: sleepWords,
                     interruptWords: interruptWords,
@@ -3338,27 +3431,49 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                 return false;
             }
 
-            // If a specific microphone is selected, ensure we have access to it
-            if (selectedMicrophoneId) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        audio: { deviceId: { exact: selectedMicrophoneId } }
-                    });
-                    // Stop the stream immediately as we just needed to test access
-                    stream.getTracks().forEach(track => track.stop());
-                    console.log('Successfully accessed selected microphone');
-                } catch (error) {
-                    console.error('Failed to access selected microphone:', error);
-                    updateStatus('⚠️ Microphone Access Issue', 'Selected microphone unavailable, using default');
-                    selectedMicrophoneId = null;
+            // Initialize audio context and microphone stream for voice activity detection
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
+                
+                const constraints = {
+                    audio: selectedMicrophoneId ? 
+                        { deviceId: { exact: selectedMicrophoneId } } : 
+                        { 
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                };
+                
+                microphoneStream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log('Microphone access granted');
+                
+                // Initialize voice activity detection for mobile optimization
+                if (isMobileDevice && mobileOptimizationEnabled) {
+                    voiceActivityDetector = initVoiceActivityDetection();
+                    console.log('Voice activity detection initialized for mobile');
+                }
+                
+            } catch (error) {
+                console.error('Failed to access microphone:', error);
+                updateStatus('⚠️ Microphone Access Issue', 'Please allow microphone access and try again');
+                return false;
             }
 
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             speechRecognition = new SpeechRecognition();
             
-            speechRecognition.continuous = true;
-            speechRecognition.interimResults = true;
+            // Mobile-optimized speech recognition settings
+            if (isMobileDevice && mobileOptimizationEnabled) {
+                speechRecognition.continuous = false; // Disable continuous mode on mobile
+                speechRecognition.interimResults = false; // Disable interim results on mobile
+                console.log('Mobile optimization enabled: continuous=false, interimResults=false');
+            } else {
+                speechRecognition.continuous = true;
+                speechRecognition.interimResults = true;
+            }
             speechRecognition.lang = document.getElementById('botLanguage').value;
 
             speechRecognition.onstart = () => {
@@ -3480,18 +3595,69 @@ INVALID_CLIENT: Invalid redirect URI<!DOCTYPE html>
                 isListening = false;
                 console.log('Speech recognition ended');
                 
+                // Clear any existing restart timeout
+                if (restartTimeout) {
+                    clearTimeout(restartTimeout);
+                    restartTimeout = null;
+                }
+                
                 if (isBotActive && !isSpeaking) {
-                    // Only restart if we're not speaking and bot is still active
-                    setTimeout(() => {
-                        if (isBotActive && !isSpeaking && !isListening) {
-                            try {
-                                console.log('Attempting to restart speech recognition');
-                                speechRecognition.start();
-                            } catch (e) {
-                                console.log('Restart attempt failed:', e);
-                            }
+                    // Mobile-optimized restart logic
+                    if (isMobileDevice && mobileOptimizationEnabled) {
+                        // On mobile, wait longer and only restart if there was recent activity
+                        const timeSinceActivity = Date.now() - lastMicrophoneActivity;
+                        const shouldRestart = timeSinceActivity < 10000; // 10 seconds
+                        
+                        if (shouldRestart) {
+                            restartTimeout = setTimeout(() => {
+                                if (isBotActive && !isSpeaking && !isListening) {
+                                    try {
+                                        console.log('Mobile: Restarting speech recognition after activity');
+                                        speechRecognition.start();
+                                    } catch (e) {
+                                        console.log('Mobile restart failed:', e);
+                                        // Wait longer before next attempt
+                                        setTimeout(() => {
+                                            if (isBotActive && !isSpeaking && !isListening) {
+                                                try {
+                                                    speechRecognition.start();
+                                                } catch (e2) {
+                                                    console.log('Mobile retry restart failed:', e2);
+                                                }
+                                            }
+                                        }, 3000);
+                                    }
+                                }
+                            }, 2000); // Wait 2 seconds on mobile
+                        } else {
+                            console.log('Mobile: Not restarting due to inactivity');
+                            updateStatus('📱 Mobile Mode - Waiting', 'Speak to reactivate listening');
+                            
+                            // Set up a periodic restart attempt for mobile
+                            restartTimeout = setTimeout(() => {
+                                if (isBotActive && !isSpeaking && !isListening) {
+                                    try {
+                                        console.log('Mobile: Periodic restart attempt');
+                                        speechRecognition.start();
+                                    } catch (e) {
+                                        console.log('Mobile periodic restart failed:', e);
+                                    }
+                                }
+                            }, 15000); // Try again in 15 seconds
                         }
-                    }, 500);
+                    } else {
+                        // Desktop: Use original quick restart logic
+                        restartTimeout = setTimeout(() => {
+                            if (isBotActive && !isSpeaking && !isListening) {
+                                try {
+                                    console.log('Desktop: Restarting speech recognition');
+                                    speechRecognition.start();
+                                } catch (e) {
+                                    console.log('Desktop restart failed:', e);
+                                }
+                            }
+                        }, 500);
+                    }
                 } else if (!isBotActive) {
                     updateBotAvatar('idle', '🤖');
                     updateStatus('💤 Assistant Deactivated', 'Click "Activate Assistant" to start');
@@ -5441,6 +5607,16 @@ User: "${input}"`;
                 clearTimeout(speechTimeout);
             }
             
+            if (restartTimeout) {
+                clearTimeout(restartTimeout);
+                restartTimeout = null;
+            }
+            
+            if (silenceTimeout) {
+                clearTimeout(silenceTimeout);
+                silenceTimeout = null;
+            }
+            
             if (speechRecognition) {
                 speechRecognition.abort();
                 speechRecognition = null;
@@ -5448,6 +5624,21 @@ User: "${input}"`;
             
             if (speechSynthesis.speaking) {
                 speechSynthesis.cancel();
+            }
+            
+            // Clean up mobile optimization resources
+            if (voiceActivityDetector) {
+                voiceActivityDetector = null;
+            }
+            
+            if (microphoneStream) {
+                microphoneStream.getTracks().forEach(track => track.stop());
+                microphoneStream = null;
+            }
+            
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close().catch(console.error);
+                audioContext = null;
             }
             
             document.getElementById('startBtn').disabled = false;
@@ -5779,6 +5970,38 @@ User: "${input}"`;
             saveSettings();
         }
 
+        // Toggle mobile optimization
+        function toggleMobileOptimization() {
+            const enabled = document.getElementById('mobileOptimization').checked;
+            mobileOptimizationEnabled = enabled;
+            
+            console.log('Mobile optimization:', enabled ? 'enabled' : 'disabled');
+            
+            // If bot is active, restart with new settings
+            if (isBotActive) {
+                console.log('Restarting bot with mobile optimization changes');
+                
+                // Stop current recognition
+                if (speechRecognition) {
+                    speechRecognition.stop();
+                }
+                
+                // Clean up existing resources
+                if (voiceActivityDetector) {
+                    voiceActivityDetector = null;
+                }
+                
+                // Restart after a moment
+                setTimeout(() => {
+                    if (isBotActive) {
+                        initBot();
+                        speechRecognition.start();
+                        updateStatus('🔄 Settings Updated', 'Mobile optimization ' + (enabled ? 'enabled' : 'disabled'));
+                    }
+                }, 1000);
+            }
+        }
+
         // Add new command
         function addCommand() {
             const commandInput = document.getElementById('commandInput');
@@ -6008,6 +6231,20 @@ User: "${input}"`;
             
             // Load saved settings first
             const settingsLoaded = loadSettings();
+            
+            // Initialize mobile detection display
+            const deviceTypeElement = document.getElementById('deviceType');
+            if (deviceTypeElement) {
+                deviceTypeElement.textContent = isMobileDevice ? 'Mobile Device' : 'Desktop/Laptop';
+                deviceTypeElement.style.color = isMobileDevice ? '#00b894' : '#74b9ff';
+                deviceTypeElement.style.fontWeight = 'bold';
+            }
+            
+            // Set default mobile optimization if no settings were loaded
+            if (!settingsLoaded) {
+                document.getElementById('mobileOptimization').checked = isMobileDevice;
+                mobileOptimizationEnabled = isMobileDevice;
+            }
             
             // Set welcome message timestamp
             document.getElementById('welcome-time').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});

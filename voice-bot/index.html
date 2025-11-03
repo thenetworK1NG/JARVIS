@@ -5717,8 +5717,10 @@ User: "${input}"`;
 
         function startPushToTalk(event) {
             event.preventDefault();
+            console.log('Push-to-talk started - button pressed');
             
             if (isPushToTalkActive || !isBotActive) {
+                console.log('Push-to-talk blocked:', { isPushToTalkActive, isBotActive });
                 return;
             }
             
@@ -5726,6 +5728,8 @@ User: "${input}"`;
             const pushToTalkBtn = document.getElementById('pushToTalkBtn');
             pushToTalkBtn.style.backgroundColor = '#ff4757';
             pushToTalkBtn.textContent = '🎤 Listening...';
+            
+            console.log('Creating push-to-talk speech recognition...');
             
             // Create new speech recognition instance for push-to-talk
             pushToTalkRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
@@ -5744,21 +5748,37 @@ User: "${input}"`;
                 if (result.isFinal) {
                     const text = result.transcript.trim();
                     if (text) {
+                        console.log('Push-to-talk received:', text);
                         addMessage('user', text);
-                        processUserInput(text, true); // Force processing as if awake
+                        
+                        // In push-to-talk mode, we bypass wake words and process directly
+                        // First check for sleep words
+                        const containsSleepWord = sleepWords.some(word => text.includes(word));
+                        if (containsSleepWord) {
+                            sleepBot(text);
+                        } else {
+                            // Set awake and process the input directly
+                            isAwake = true;
+                            conversationCount++;
+                            updateStats();
+                            resetSleepTimer();
+                            handleAwakeInput(text);
+                        }
                     }
                 }
             };
 
             pushToTalkRecognition.onerror = function(event) {
                 console.error('Push-to-talk speech recognition error:', event.error);
+                console.error('Error details:', event);
+                addMessage('bot', `Speech recognition error: ${event.error}. Please try again.`);
                 stopPushToTalk();
             };
 
             pushToTalkRecognition.onend = function() {
-                if (isPushToTalkActive) {
-                    stopPushToTalk();
-                }
+                console.log('Push-to-talk speech recognition ended');
+                // Don't automatically call stopPushToTalk here as it might interfere
+                // Let the user release trigger the stop
             };
 
             try {
@@ -5774,7 +5794,10 @@ User: "${input}"`;
                 event.preventDefault();
             }
             
+            console.log('Push-to-talk stopped - button released');
+            
             if (!isPushToTalkActive) {
+                console.log('Push-to-talk already inactive');
                 return;
             }
             
@@ -5784,8 +5807,13 @@ User: "${input}"`;
             pushToTalkBtn.textContent = '🎤 Hold to Talk';
             
             if (pushToTalkRecognition) {
-                pushToTalkRecognition.abort();
-                pushToTalkRecognition = null;
+                console.log('Stopping push-to-talk recognition...');
+                // Use stop() instead of abort() to allow final results to process
+                pushToTalkRecognition.stop();
+                // Clear the reference after a small delay to allow result processing
+                setTimeout(() => {
+                    pushToTalkRecognition = null;
+                }, 100);
             }
             
             updateStatus('🎯 Ready', 'Hold the "Hold to Talk" button and speak');

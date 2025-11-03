@@ -1143,16 +1143,19 @@
                 </div>
                 
                 <div id="spotifySettings" style="display: none;">
-                    <div class="form-group">
-                        <label for="spotifyClientId">Spotify Client ID:</label>
-                        <input type="text" id="spotifyClientId" placeholder="Your Spotify App Client ID" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 10px; font-size: 14px; box-sizing: border-box;" onchange="saveSettings();">
-                        <small style="color: #666; margin-top: 5px; display: block;">Get this from <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer Dashboard</a></small>
+                    <div style="margin-bottom: 15px; padding: 12px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 10px; font-size: 12px; color: #856404;">
+                        <strong>🔧 Setup Instructions:</strong><br>
+                        1. Go to <a href="https://developer.spotify.com/dashboard" target="_blank" style="color: #1db954; text-decoration: none;">Spotify Developer Dashboard</a><br>
+                        2. Create a new app or select existing one<br>
+                        3. Copy your Client ID below<br>
+                        4. In app settings, add redirect URI: <code style="background: #f8f9fa; padding: 2px 4px; border-radius: 3px;">http://localhost:8080</code><br>
+                        5. Click "Connect to Spotify" below
                     </div>
                     
                     <div class="form-group">
-                        <label for="spotifyRedirectUri">Redirect URI:</label>
-                        <input type="text" id="spotifyRedirectUri" value="http://localhost:8080" placeholder="http://localhost:8080" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 10px; font-size: 14px; box-sizing: border-box;" onchange="saveSettings();">
-                        <small style="color: #666; margin-top: 5px; display: block;">Add this URL to your Spotify app settings</small>
+                        <label for="spotifyClientId">Spotify Client ID:</label>
+                        <input type="text" id="spotifyClientId" placeholder="Paste your Spotify App Client ID here" style="width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 10px; font-size: 14px; box-sizing: border-box;" onchange="saveSettings();">
+                        <small style="color: #666; margin-top: 5px; display: block;">Get this from your Spotify app in the Developer Dashboard</small>
                     </div>
                     
                     <button type="button" onclick="authorizeSpotify()" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #1db954, #1ed760); color: white; border: none; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; margin-bottom: 10px;">🔑 Connect to Spotify</button>
@@ -1167,11 +1170,12 @@
                         <strong>🎵 Voice Commands:</strong><br>
                         • "play music" - Start/resume playback<br>
                         • "pause music" - Pause playback<br>
-                        • "next song" - Skip to next track<br>
-                        • "previous song" - Go to previous track<br>
-                        • "play [song/artist]" - Search and play<br>
-                        • "shuffle on/off" - Toggle shuffle<br>
-                        • "volume up/down" - Adjust volume
+                        • "skip" / "next song" - Skip to next track<br>
+                        • "previous" / "last song" - Go to previous track<br>
+                        • "play [song/artist]" - Search and play specific music<br>
+                        • "volume to [number]" - Set volume (0-100)<br>
+                        • "turn up" / "turn down" - Adjust volume<br>
+                        • "what's playing" - Get current track info
                     </div>
                 </div>
             </div>
@@ -2162,7 +2166,6 @@
             ollamaUrl: 'http://localhost:11434',
             useSpotify: false,
             spotifyClientId: '',
-            spotifyRedirectUri: 'http://localhost:8080',
             useAbsenceGreeting: true,
             absenceMinutes: 30,
             morningGreeting: 'Good morning sir, welcome back',
@@ -2329,15 +2332,21 @@
             }
         }
 
-        // Authorize Spotify
+        // Authorize Spotify using Web Playback SDK
         async function authorizeSpotify() {
             const clientId = document.getElementById('spotifyClientId').value;
-            const redirectUri = document.getElementById('spotifyRedirectUri').value;
             
             if (!clientId) {
                 alert('Please enter your Spotify Client ID first');
                 return;
             }
+            
+            // Generate code verifier and challenge for PKCE
+            const codeVerifier = generateCodeVerifier();
+            const codeChallenge = await generateCodeChallenge(codeVerifier);
+            
+            // Store code verifier for later use
+            localStorage.setItem('spotify_code_verifier', codeVerifier);
             
             const scopes = [
                 'streaming',
@@ -2350,25 +2359,38 @@
                 'playlist-read-collaborative'
             ].join(' ');
             
-            // Use implicit grant flow for client-side apps
             const authUrl = `https://accounts.spotify.com/authorize?` +
-                `response_type=token&` +
+                `response_type=code&` +
                 `client_id=${encodeURIComponent(clientId)}&` +
                 `scope=${encodeURIComponent(scopes)}&` +
-                `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+                `redirect_uri=${encodeURIComponent('http://localhost:8080')}&` +
+                `code_challenge_method=S256&` +
+                `code_challenge=${codeChallenge}&` +
                 `state=${Math.random().toString(36).substring(7)}`;
             
-            // Open in popup to capture the token
-            const popup = window.open(authUrl, 'spotify-auth', 'width=500,height=600');
+            // Open authorization in new tab
+            window.open(authUrl, '_blank');
             
-            // Listen for the popup to close or redirect
-            const checkClosed = setInterval(() => {
-                if (popup.closed) {
-                    clearInterval(checkClosed);
-                    // Check if we have a token in the URL hash
-                    checkForSpotifyToken();
-                }
-            }, 1000);
+            // Update status
+            document.getElementById('spotifyStatus').textContent = '⏳ Authorization opened in new tab. Complete the process there.';
+            document.getElementById('spotifyStatus').style.color = '#f39c12';
+        }
+
+        // Generate code verifier for PKCE
+        function generateCodeVerifier() {
+            const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+            const values = crypto.getRandomValues(new Uint8Array(128));
+            return values.reduce((acc, x) => acc + possible[x % possible.length], '');
+        }
+
+        // Generate code challenge for PKCE
+        async function generateCodeChallenge(codeVerifier) {
+            const data = new TextEncoder().encode(codeVerifier);
+            const digest = await window.crypto.subtle.digest('SHA-256', data);
+            return btoa(String.fromCharCode(...new Uint8Array(digest)))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
         }
 
         // Test Spotify connection
@@ -2646,11 +2668,10 @@
 
         // Handle Spotify OAuth callback
         function handleSpotifyCallback() {
-            // Check URL hash for access token (implicit grant)
-            const hash = window.location.hash.substring(1);
-            const params = new URLSearchParams(hash);
-            const accessToken = params.get('access_token');
-            const error = params.get('error');
+            // Check URL params for authorization code
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const error = urlParams.get('error');
             
             if (error) {
                 console.error('Spotify authorization error:', error);
@@ -2659,51 +2680,171 @@
                 return;
             }
             
-            if (accessToken) {
-                spotifyAccessToken = accessToken;
-                const expiresIn = params.get('expires_in');
-                
-                // Store token with expiration
-                if (expiresIn) {
-                    const expirationTime = Date.now() + (parseInt(expiresIn) * 1000);
-                    localStorage.setItem('spotifyAccessToken', accessToken);
-                    localStorage.setItem('spotifyTokenExpiration', expirationTime.toString());
-                }
-                
-                document.getElementById('spotifyStatus').textContent = '✅ Connected successfully!';
-                document.getElementById('spotifyStatus').style.color = '#27ae60';
-                
-                // Test connection and get devices
-                testSpotifyConnection();
+            if (code) {
+                // Exchange code for access token
+                exchangeSpotifyCode(code);
                 
                 // Clean up URL
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         }
 
+        // Exchange authorization code for access tokens
+        async function exchangeSpotifyCode(code) {
+            const clientId = document.getElementById('spotifyClientId').value;
+            const codeVerifier = localStorage.getItem('spotify_code_verifier');
+            
+            if (!codeVerifier) {
+                console.error('Code verifier not found');
+                document.getElementById('spotifyStatus').textContent = '❌ Authorization error: missing code verifier';
+                document.getElementById('spotifyStatus').style.color = '#e74c3c';
+                return;
+            }
+            
+            try {
+                document.getElementById('spotifyStatus').textContent = '⏳ Exchanging code for access token...';
+                document.getElementById('spotifyStatus').style.color = '#f39c12';
+                
+                const response = await fetch('https://accounts.spotify.com/api/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        client_id: clientId,
+                        grant_type: 'authorization_code',
+                        code: code,
+                        redirect_uri: 'http://localhost:8080',
+                        code_verifier: codeVerifier,
+                    }),
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    spotifyAccessToken = data.access_token;
+                    spotifyRefreshToken = data.refresh_token;
+                    
+                    // Store tokens with expiration
+                    const expirationTime = Date.now() + (data.expires_in * 1000);
+                    localStorage.setItem('spotifyAccessToken', spotifyAccessToken);
+                    localStorage.setItem('spotifyRefreshToken', spotifyRefreshToken);
+                    localStorage.setItem('spotifyTokenExpiration', expirationTime.toString());
+                    
+                    // Clean up code verifier
+                    localStorage.removeItem('spotify_code_verifier');
+                    
+                    document.getElementById('spotifyStatus').textContent = '✅ Connected successfully!';
+                    document.getElementById('spotifyStatus').style.color = '#27ae60';
+                    
+                    // Test connection and get devices
+                    await testSpotifyConnection();
+                    
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error_description || 'Token exchange failed');
+                }
+                
+            } catch (error) {
+                console.error('Spotify token exchange error:', error);
+                document.getElementById('spotifyStatus').textContent = `❌ Token exchange failed: ${error.message}`;
+                document.getElementById('spotifyStatus').style.color = '#e74c3c';
+                
+                // Clean up code verifier
+                localStorage.removeItem('spotify_code_verifier');
+            }
+        }
+
         // Check for Spotify token in localStorage or URL
         function checkForSpotifyToken() {
-            // First check URL hash
+            // First check URL for authorization code
             handleSpotifyCallback();
             
             // If no token in URL, check localStorage
             if (!spotifyAccessToken) {
                 const storedToken = localStorage.getItem('spotifyAccessToken');
+                const storedRefreshToken = localStorage.getItem('spotifyRefreshToken');
                 const tokenExpiration = localStorage.getItem('spotifyTokenExpiration');
                 
                 if (storedToken && tokenExpiration) {
                     if (Date.now() < parseInt(tokenExpiration)) {
+                        // Token is still valid
                         spotifyAccessToken = storedToken;
+                        spotifyRefreshToken = storedRefreshToken;
                         document.getElementById('spotifyStatus').textContent = '✅ Previously connected';
                         document.getElementById('spotifyStatus').style.color = '#27ae60';
+                    } else if (storedRefreshToken) {
+                        // Token expired but we have a refresh token
+                        refreshSpotifyToken();
                     } else {
-                        // Token expired
+                        // Token expired and no refresh token
                         localStorage.removeItem('spotifyAccessToken');
+                        localStorage.removeItem('spotifyRefreshToken');
                         localStorage.removeItem('spotifyTokenExpiration');
                         document.getElementById('spotifyStatus').textContent = '❌ Token expired. Please re-authorize.';
                         document.getElementById('spotifyStatus').style.color = '#e74c3c';
                     }
                 }
+            }
+        }
+
+        // Refresh Spotify access token
+        async function refreshSpotifyToken() {
+            const clientId = document.getElementById('spotifyClientId').value;
+            const refreshToken = localStorage.getItem('spotifyRefreshToken');
+            
+            if (!refreshToken) {
+                document.getElementById('spotifyStatus').textContent = '❌ No refresh token. Please re-authorize.';
+                document.getElementById('spotifyStatus').style.color = '#e74c3c';
+                return;
+            }
+            
+            try {
+                document.getElementById('spotifyStatus').textContent = '⏳ Refreshing access token...';
+                document.getElementById('spotifyStatus').style.color = '#f39c12';
+                
+                const response = await fetch('https://accounts.spotify.com/api/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        client_id: clientId,
+                        grant_type: 'refresh_token',
+                        refresh_token: refreshToken,
+                    }),
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    spotifyAccessToken = data.access_token;
+                    
+                    // Update refresh token if provided
+                    if (data.refresh_token) {
+                        spotifyRefreshToken = data.refresh_token;
+                        localStorage.setItem('spotifyRefreshToken', spotifyRefreshToken);
+                    }
+                    
+                    // Store new access token with expiration
+                    const expirationTime = Date.now() + (data.expires_in * 1000);
+                    localStorage.setItem('spotifyAccessToken', spotifyAccessToken);
+                    localStorage.setItem('spotifyTokenExpiration', expirationTime.toString());
+                    
+                    document.getElementById('spotifyStatus').textContent = '✅ Token refreshed successfully!';
+                    document.getElementById('spotifyStatus').style.color = '#27ae60';
+                    
+                } else {
+                    throw new Error('Token refresh failed');
+                }
+                
+            } catch (error) {
+                console.error('Spotify token refresh error:', error);
+                document.getElementById('spotifyStatus').textContent = '❌ Token refresh failed. Please re-authorize.';
+                document.getElementById('spotifyStatus').style.color = '#e74c3c';
+                
+                // Clean up stored tokens
+                localStorage.removeItem('spotifyAccessToken');
+                localStorage.removeItem('spotifyRefreshToken');
+                localStorage.removeItem('spotifyTokenExpiration');
             }
         }
         
@@ -2729,7 +2870,6 @@
                     // Apply Spotify settings
                     document.getElementById('useSpotify').checked = settings.useSpotify || defaultSettings.useSpotify;
                     document.getElementById('spotifyClientId').value = settings.spotifyClientId || defaultSettings.spotifyClientId;
-                    document.getElementById('spotifyRedirectUri').value = settings.spotifyRedirectUri || defaultSettings.spotifyRedirectUri;
                     
                     // Apply absence greeting settings
                     document.getElementById('useAbsenceGreeting').checked = settings.useAbsenceGreeting !== undefined ? settings.useAbsenceGreeting : defaultSettings.useAbsenceGreeting;
@@ -2824,7 +2964,6 @@
                     ollamaUrl: document.getElementById('ollamaUrl').value,
                     useSpotify: document.getElementById('useSpotify').checked,
                     spotifyClientId: document.getElementById('spotifyClientId').value,
-                    spotifyRedirectUri: document.getElementById('spotifyRedirectUri').value,
                     useAbsenceGreeting: document.getElementById('useAbsenceGreeting').checked,
                     absenceMinutes: parseInt(document.getElementById('absenceMinutes').value),
                     morningGreeting: document.getElementById('morningGreeting').value,

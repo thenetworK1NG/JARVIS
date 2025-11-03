@@ -1,0 +1,54 @@
+{
+  "name": "voice-assistant-bot",
+  "version": "1.0.0",
+  "description": "A voice-activated assistant bot that continuously listens and responds to user commands using speech recognition and text-to-speech technologies.",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "serve": "python -m http.server 8080",
+    "dev": "live-server --port=3000"
+  },
+  "keywords": [
+    "voice-assistant",
+    "speech-recognition", 
+    "text-to-speech",
+    "bot",
+    "ai-assistant",
+    "voice-commands",
+    "web-speech-api",
+    "javascript",
+    "html5"
+  ],
+  "author": "Voice Bot Developer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/username/voice-assistant-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/username/voice-assistant-bot/issues"
+  },
+  "homepage": "https://github.com/username/voice-assistant-bot#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  },
+  "browserslist": [
+    "Chrome >= 60",
+    "Firefox >= 55",
+    "Safari >= 11",
+    "Edge >= 79"
+  ],
+  "files": [
+    "index.html",
+    "advanced.html", 
+    "config.json",
+    "README.md"
+  ],
+  "directories": {
+    "doc": "docs",
+    "example": "examples"
+  }
+}
